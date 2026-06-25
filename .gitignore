@@ -1,0 +1,37 @@
+node_modules/
+dist/
+.vite/
+*.cjs
+_extract.*
+_checkdb.*
+
+# 版权游戏资源（需单独下载）
+public/game/cc/
+public/game/config/
+public/game/font/
+public/game/list/
+public/game/movie/
+public/game/music/
+public/game/resource/
+public/game/save/
+public/game/script/
+public/game/sound/
+public/game/voice/
+public/game/game.db
+public/game/games.ini
+public/game/play.bat
+public/game/bin/
+public/game/game-dragon/
+public/game/game-ptt/
+public/game/game-RiverLake/
+public/game/cpplauncher.exe
+
+# 保留 public/game_data.json（从数据库提取的 JSON）
+!public/game/game_data.json
+
+# 工具（构建时使用）
+scripts/lua2ts/
+
+# 编辑器
+.idea/
+.vscode/
