@@ -1,5 +1,19 @@
 export type GameKey = 'up' | 'down' | 'left' | 'right' | 'enter' | 'escape' | 'space' | 'tab' | 'backspace' | 'delete';
 
+export const DEFAULT_KEY_BINDINGS: Record<string, string> = {
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+  confirm: 'Enter',
+  cancel: 'Escape',
+  menu: 'Escape',
+  status: 'KeyS',
+  item: 'KeyI',
+};
+
+const STORAGE_KEY = 'kys.keyBindings';
+
 export interface InputState {
   keys: Set<string>;
   keysJustPressed: Set<string>;
@@ -30,6 +44,7 @@ export class InputManager {
   private _prevMouseDown = false;
   private _prevTouchActive = false;
   private _wheelAccum = 0;
+  private bindings: Record<string, string> = { ...DEFAULT_KEY_BINDINGS };
 
   private constructor() {
     this._state = {
@@ -41,11 +56,13 @@ export class InputManager {
       mouseJustReleased: false,
       mouseButton: 0,
       wheelDelta: 0,
-      touchX: 0, touchY: 0,
+      touchX: 0,
+      touchY: 0,
       touchActive: false,
       touchJustStarted: false,
       touchJustEnded: false,
     };
+    this.loadBindings();
   }
 
   get state(): Readonly<InputState> { return this._state; }
@@ -126,17 +143,78 @@ export class InputManager {
     this._prevKeys = new Set(this._state.keys);
   }
 
-  isKeyDown(key: string): boolean { return this._state.keys.has(key); }
-  isKeyPressed(key: string): boolean { return this._frameKeys.has(key); }
+  getKeyBindings(): Record<string, string> {
+    return { ...this.bindings };
+  }
+
+  setKeyBinding(action: string, key: string): void {
+    if (!(action in DEFAULT_KEY_BINDINGS)) return;
+    this.bindings[action] = key;
+    this.saveBindings();
+  }
+
+  setKeyBindings(bindings: Record<string, string>): void {
+    this.bindings = { ...DEFAULT_KEY_BINDINGS, ...bindings };
+    this.saveBindings();
+  }
+
+  resetKeyBindings(): void {
+    this.bindings = { ...DEFAULT_KEY_BINDINGS };
+    this.saveBindings();
+  }
+
+  private loadBindings(): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) this.bindings = { ...DEFAULT_KEY_BINDINGS, ...JSON.parse(raw) };
+    } catch {}
+  }
+
+  private saveBindings(): void {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.bindings));
+    } catch {}
+  }
+
+  private actionsForDefaultKey(key: string): string[] {
+    return Object.keys(DEFAULT_KEY_BINDINGS).filter(action => DEFAULT_KEY_BINDINGS[action] === key);
+  }
+
+  private boundKeyForDefaultKey(key: string): string[] {
+    const actions = this.actionsForDefaultKey(key);
+    return actions.map(action => this.bindings[action] || DEFAULT_KEY_BINDINGS[action]);
+  }
+
+  isKeyDown(key: string): boolean {
+    if (this._state.keys.has(key)) return true;
+    return this.boundKeyForDefaultKey(key).some(bound => bound !== key && this._state.keys.has(bound));
+  }
+
+  isKeyPressed(key: string): boolean {
+    if (this._frameKeys.has(key)) return true;
+    return this.boundKeyForDefaultKey(key).some(bound => bound !== key && this._frameKeys.has(bound));
+  }
+
+  isActionDown(action: string): boolean {
+    const key = this.bindings[action] || DEFAULT_KEY_BINDINGS[action];
+    return !!key && this._state.keys.has(key);
+  }
+
+  isActionPressed(action: string): boolean {
+    const key = this.bindings[action] || DEFAULT_KEY_BINDINGS[action];
+    return !!key && this._frameKeys.has(key);
+  }
+
   isAnyKeyPressed(): boolean { return this._frameKeys.size > 0; }
+  getPressedKeys(): string[] { return [...this._frameKeys]; }
 
   /** 方向键综合状态 */
   get direction(): { dx: number; dy: number } {
     let dx = 0, dy = 0;
-    if (this.isKeyDown('ArrowUp') || this.isKeyDown('KeyW')) dy = -1;
-    if (this.isKeyDown('ArrowDown') || this.isKeyDown('KeyS')) dy = 1;
-    if (this.isKeyDown('ArrowLeft') || this.isKeyDown('KeyA')) dx = -1;
-    if (this.isKeyDown('ArrowRight') || this.isKeyDown('KeyD')) dx = 1;
+    if (this.isActionDown('up')) dy = -1;
+    if (this.isActionDown('down')) dy = 1;
+    if (this.isActionDown('left')) dx = -1;
+    if (this.isActionDown('right')) dx = 1;
     return { dx, dy };
   }
 }

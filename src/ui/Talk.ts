@@ -1,6 +1,7 @@
 import { Graphics, Text, TextStyle } from 'pixi.js';
 import { RunNode } from '../core/RunNode';
 import { Engine } from '../engine/Engine';
+import { InputManager } from '../engine/InputManager';
 
 /**
  * Talk — 对话系统（半透明框 + 头像 + 名称 + 分页文本）
@@ -134,13 +135,20 @@ export class Talk extends RunNode {
     if (this.onComplete) {
       this.onComplete();
       this.onComplete = null;
+      this.exitWithResult(0);
       return false;
     }
     return false;
   }
 
   override backRun(): void {
-    if (!this.visibleNode || this.done) return;
+    if (!this.visibleNode) return;
+    const input = InputManager.getInstance();
+    if (input.isKeyPressed('Enter') || input.isKeyPressed('Space') || input.isKeyPressed('Escape')) {
+      this.nextPage();
+      return;
+    }
+    if (this.done) return;
     // typewriter effect in backRun
     const dt = 1 / 60; // approximate
     this.typewriterUpdate(dt);

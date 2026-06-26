@@ -1,13 +1,13 @@
-import { Graphics, Text, TextStyle, Container } from 'pixi.js';
+import { Graphics, Text } from 'pixi.js';
 import { RunNode } from '../core/RunNode';
 import { Engine } from '../engine/Engine';
 import { InputManager } from '../engine/InputManager';
-import { TextureManager } from '../data/TextureManager';
+import { ResourceTextureCache } from '../data/ResourceTextureCache';
 import type { GameState, ItemSave } from '../data/Types';
 
 /**
  * UIItem — 物品栏界面
- * 7×3 网格 + 拖拽 + 分类标签
+ * 7×3 网格 + 分类标签
  * 对应 C++ UIItem.cpp
  */
 export class UIItem extends RunNode {
@@ -17,13 +17,15 @@ export class UIItem extends RunNode {
   private categories = ['全部', '药品', '暗器', '武器', '防具', '秘籍'];
   private selectedIndex = -1;
   private detailText: Text;
+  private readonly textureCache = ResourceTextureCache.getInstance();
+  private lastIconReadyCount = -1;
 
   private cols = 7;
   private rows = 3;
   private cellW = 60;
   private cellH = 60;
   private startX = 20;
-  private startY = 40;
+  private startY = 48;
 
   constructor() {
     super();
@@ -34,7 +36,7 @@ export class UIItem extends RunNode {
       style: { fontFamily: 'SimHei, Microsoft YaHei, sans-serif', fontSize: 14, fill: 0xcccccc, wordWrap: true, wordWrapWidth: 600 },
     });
     this.detailText.x = 20;
-    this.detailText.y = 260;
+    this.detailText.y = 270;
     this.addChild(this.detailText);
   }
 
@@ -51,6 +53,7 @@ export class UIItem extends RunNode {
         const item = state.Items[itemId];
         if (this.filterItem(item)) {
           this.items.push({ item, count });
+          this.textureCache.request('resource/item', item.ID);
         }
       }
     }
@@ -69,16 +72,27 @@ export class UIItem extends RunNode {
 
   private drawGrid(): void {
     this.removeChildren();
-    this.addChild(this.detailText);
 
     const engine = Engine.getInstance();
+    const panel = new Graphics();
+    panel.rect(8, 8, engine.uiWidth - 16, 330);
+    panel.fill({ color: 0x000000, alpha: 0.72 });
+    panel.rect(8, 8, engine.uiWidth - 16, 330);
+    panel.stroke({ color: 0xd8d8d8, width: 1 });
+    this.addChild(panel);
+
+    this.addChild(this.detailText);
+
+    const title = engine.createText('物品', 18, 0xffcc66);
+    title.x = 20; title.y = 16;
+    this.addChild(title);
 
     // 分类标签
-    const catY = 5;
+    const catY = 20;
     this.categories.forEach((cat, i) => {
       const active = i === this.activeCategory;
-      const t = engine.createText(cat, 14, active ? 0xffcc66 : 0x8888aa);
-      t.x = this.startX + i * 70;
+      const t = engine.createText(cat, 14, active ? 0xffff66 : 0xb8b8b8);
+      t.x = 86 + i * 70;
       t.y = catY;
       this.addChild(t);
     });
@@ -93,20 +107,28 @@ export class UIItem extends RunNode {
       const y = this.startY + row * (this.cellH + 4);
 
       const g = new Graphics();
-      g.roundRect(x, y, this.cellW, this.cellH, 4);
-      g.fill({ color: idx === this.selectedIndex ? 0x3a3a5a : 0x1a1a2e });
-      g.roundRect(x, y, this.cellW, this.cellH, 4);
-      g.stroke({ color: 0x444466, width: 1 });
+      g.rect(x, y, this.cellW, this.cellH);
+      g.fill({ color: idx === this.selectedIndex ? 0x274675 : 0x101826, alpha: 0.92 });
+      g.rect(x, y, this.cellW, this.cellH);
+      g.stroke({ color: idx === this.selectedIndex ? 0xffff66 : 0xd0d0d0, width: 1 });
       this.addChild(g);
 
-      const name = engine.createText(entry.item.Name.substring(0, 3), 12, 0xffffff);
-      name.x = x + 5;
-      name.y = y + 5;
+      const icon = this.textureCache.createSprite('resource/item', entry.item.ID, x + 30, y + 34, 1);
+      if (icon) {
+        icon.anchor.set(0.5);
+        const maxSide = Math.max(icon.width, icon.height);
+        if (maxSide > 34) icon.scale.set(icon.scale.x * (34 / maxSide));
+        this.addChild(icon);
+      }
+
+      const name = engine.createText(entry.item.Name.substring(0, 4), 11, 0xffffff);
+      name.x = x + 4;
+      name.y = y + 4;
       this.addChild(name);
 
-      const count = engine.createText(`×${entry.count}`, 11, 0x88aacc);
+      const count = engine.createText(`×${entry.count}`, 11, 0xffee88);
       count.x = x + 5;
-      count.y = y + 40;
+      count.y = y + 43;
       this.addChild(count);
     });
 
@@ -114,6 +136,8 @@ export class UIItem extends RunNode {
     if (this.selectedIndex >= 0 && this.selectedIndex < this.items.length) {
       const entry = this.items[this.selectedIndex];
       this.detailText.text = `${entry.item.Name}\n${entry.item.Introduction}\n价格: ${entry.item.Price}`;
+    } else {
+      this.detailText.text = 'Tab 分类　方向键选择　Enter/Space 返回';
     }
   }
 
@@ -121,5 +145,30 @@ export class UIItem extends RunNode {
   selectItem(index: number): void {
     this.selectedIndex = index;
     this.drawGrid();
+  }
+
+  override backRun(): void {
+    const input = InputManager.getInstance();
+    const max = Math.min(this.items.length, this.cols * this.rows) - 1;
+    const visibleItems = this.items.slice(0, this.cols * this.rows);
+    visibleItems.forEach(entry => this.textureCache.request('resource/item', entry.item.ID));
+    const readyCount = visibleItems.filter(entry => this.textureCache.getCached('resource/item', entry.item.ID)).length;
+    if (readyCount !== this.lastIconReadyCount) {
+      this.lastIconReadyCount = readyCount;
+      this.drawGrid();
+    }
+    if (input.isKeyPressed('Tab')) {
+      this.activeCategory = (this.activeCategory + 1) % this.categories.length;
+      this.selectedIndex = -1;
+      this.loadItems(this.gameState, this.gameState.SelfIndex);
+    }
+    if (max >= 0) {
+      if (this.selectedIndex < 0) this.selectedIndex = 0;
+      if (input.isKeyPressed('ArrowLeft') || input.isKeyPressed('KeyA')) this.selectItem(Math.max(0, this.selectedIndex - 1));
+      if (input.isKeyPressed('ArrowRight') || input.isKeyPressed('KeyD')) this.selectItem(Math.min(max, this.selectedIndex + 1));
+      if (input.isKeyPressed('ArrowUp') || input.isKeyPressed('KeyW')) this.selectItem(Math.max(0, this.selectedIndex - this.cols));
+      if (input.isKeyPressed('ArrowDown') || input.isKeyPressed('KeyS')) this.selectItem(Math.min(max, this.selectedIndex + this.cols));
+    }
+    if (input.isKeyPressed('Escape') || input.isKeyPressed('Enter') || input.isKeyPressed('Space')) this.exitWithResult(this.selectedIndex);
   }
 }

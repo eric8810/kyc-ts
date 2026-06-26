@@ -2,6 +2,7 @@ import { Container, Graphics, Text } from 'pixi.js';
 import { Scene } from '../../core/Scene';
 import { Engine } from '../../engine/Engine';
 import { InputManager } from '../../engine/InputManager';
+import { ResourceTextureCache } from '../../data/ResourceTextureCache';
 import { BattleMap } from './BattleMap';
 import { BattleCursor, CursorMode } from './BattleCursor';
 import { BattleMenu } from './BattleMenu';
@@ -36,6 +37,10 @@ export class BattleScene extends Scene {
   protected phase: 'init' | 'select' | 'action' | 'end' = 'init';
   protected battleId = 0;
   protected textElements: Text[] = [];
+  private battleLog = '选择行动';
+  private logFrames = 0;
+  private readonly textureCache = ResourceTextureCache.getInstance();
+  private pendingExitResult: number | null = null;
 
   /** 获取所有战斗角色 */
   get battleRoles(): BattleRole[] { return [...this.allies, ...this.enemies]; }
@@ -51,6 +56,8 @@ export class BattleScene extends Scene {
     if (battleId !== undefined) this.battleId = battleId;
     this.battleMap = new BattleMap();
     this.battleCursor = new BattleCursor(this);
+    this.TILE_W = this.battleMap.tileW;
+    this.TILE_H = this.battleMap.tileH;
   }
 
   override onEntrance(): void {
@@ -58,13 +65,18 @@ export class BattleScene extends Scene {
   }
 
   protected initBattle(): void {
+    this.allies = [];
+    this.enemies = [];
+
     // 加载友方（队伍成员 + 主角）
     const selfRole = this.gameState.Roles[this.gameState.SelfIndex];
     if (selfRole) {
+      selfRole.Pic = selfRole.Pic || 0;
       this.allies.push({
-        role: selfRole, x: 30, y: 30, team: 0,
+        role: selfRole, x: 29, y: 31, team: 0,
         hp: selfRole.HP, mp: selfRole.MP, alive: true, speedBar: 0
       });
+      this.textureCache.request('resource/fight/fight000', 0);
     }
 
     // 加载敌方（根据 battleId 预设）
@@ -72,17 +84,25 @@ export class BattleScene extends Scene {
       const enemyId = 100 + this.battleId * 10 + i;
       const enemyRole = this.gameState.Roles[enemyId];
       if (enemyRole) {
+        enemyRole.Pic = enemyRole.Pic || 1 + i;
         this.enemies.push({
-          role: enemyRole, x: 40 + i * 3, y: 40, team: 1,
+          role: enemyRole, x: 39 + i * 3, y: 38 + i, team: 1,
           hp: enemyRole.HP, mp: enemyRole.MP, alive: true, speedBar: 0,
         });
+        this.textureCache.request(`resource/fight/fight${String(Math.max(0, enemyRole.Pic)).padStart(3, '0')}`, 0);
       } else {
         // 生成临时敌人
-        const tmp: RoleSave = { ...selfRole, ID: enemyId, Name: `敌人${i + 1}`, HP: 100, MaxHP: 100, Attack: 20, Defence: 10 };
-        this.enemies.push({ role: tmp, x: 40 + i * 3, y: 40, team: 1, hp: 100, mp: 0, alive: true, speedBar: 0 });
+        const tmp: RoleSave = { ...selfRole, ID: enemyId, Name: `敌人${i + 1}`, HP: 100, MaxHP: 100, Attack: 20, Defence: 10, Pic: 1 + i };
+        this.enemies.push({ role: tmp, x: 39 + i * 3, y: 38 + i, team: 1, hp: 100, mp: 0, alive: true, speedBar: 0 });
+        this.textureCache.request(`resource/fight/fight${String(1 + i).padStart(3, '0')}`, 0);
       }
     }
 
+    this.battleCursor.setPosition45(this.enemies[0]?.x ?? 40, this.enemies[0]?.y ?? 40);
+    const selectLayer = new Array(64 * 64).fill(1);
+    this.battleCursor.setSelectLayer(selectLayer);
+    this.battleLog = '选择行动：方向键移动光标，Enter确认';
+    this.logFrames = 240;
     this.sortTurnOrder();
     this.phase = 'select';
   }
@@ -94,6 +114,18 @@ export class BattleScene extends Scene {
   }
 
   override backRun(): void {
+    const input = InputManager.getInstance();
+    const actor = this.turnOrder[this.currentActorIndex];
+    if (actor?.team === 0 && this.menu) {
+      const { dx, dy } = input.direction;
+      if (input.isKeyPressed('ArrowLeft') || input.isKeyPressed('KeyA') ||
+          input.isKeyPressed('ArrowRight') || input.isKeyPressed('KeyD') ||
+          input.isKeyPressed('ArrowUp') || input.isKeyPressed('KeyW') ||
+          input.isKeyPressed('ArrowDown') || input.isKeyPressed('KeyS')) {
+        this.battleCursor.move(dx, dy);
+      }
+    }
+
     switch (this.phase) {
       case 'select': this.selectPhase(); break;
       case 'action': this.actionPhase(); break;
@@ -129,9 +161,15 @@ export class BattleScene extends Scene {
     this.addChildNode(this.menu);
 
     this.menu.onResult = (action) => {
-      this.removeChildNode(this.menu!);
+      if (this.menu) this.removeChildNode(this.menu);
       this.menu = null;
       this.executeAction(actor, action);
+    };
+    this.menu.onCancel = () => {
+      if (this.menu) this.removeChildNode(this.menu);
+      this.menu = null;
+      this.battleLog = '已取消，请重新选择行动';
+      this.logFrames = 120;
     };
   }
 
@@ -142,8 +180,11 @@ export class BattleScene extends Scene {
       case 2: this.actionMagic(actor); break;
       case 3: this.actionItem(actor); break;
       case 4: this.actionWait(actor); break;
+      case 7: this.battleLog = `${actor.role.Name} 逃跑失败`; break;
+      case 10: actor.hp = Math.min(actor.role.MaxHP, actor.hp + 10); this.battleLog = `${actor.role.Name} 防御并回复10生命`; break;
       default: this.actionWait(actor); break;
     }
+    this.logFrames = 180;
 
     this.nextTurn();
   }
@@ -152,11 +193,14 @@ export class BattleScene extends Scene {
     // 移动光标选择目标位置
     actor.x = this.battleCursor.gridX;
     actor.y = this.battleCursor.gridY;
+    this.battleLog = `${actor.role.Name} 移动到(${actor.x},${actor.y})`;
   }
 
   private actionAttack(actor: BattleRole): void {
     this.battleCursor.mode = CursorMode.Action;
-    const target = this.enemies.find(e => e.alive && e.x === this.battleCursor.gridX && e.y === this.battleCursor.gridY);
+    const opponents = actor.team === 0 ? this.enemies : this.allies;
+    const target = opponents.find(e => e.alive && e.x === this.battleCursor.gridX && e.y === this.battleCursor.gridY)
+      ?? opponents.find(e => e.alive);
     if (target) {
       const damage = this.calMagicHurt(actor.role, target.role, null);
       target.hp -= damage;
@@ -164,6 +208,10 @@ export class BattleScene extends Scene {
         target.hp = 0;
         target.alive = false;
       }
+      this.battleCursor.setPosition45(target.x, target.y);
+      this.battleLog = `${actor.role.Name} 攻击 ${target.role.Name} 造成 ${damage} 伤害`;
+    } else {
+      this.battleLog = `${actor.role.Name} 攻击落空`;
     }
   }
 
@@ -171,12 +219,21 @@ export class BattleScene extends Scene {
     // 选择武功
     const magic = actor.role.MagicID[0];
     if (magic) {
-      const target = this.enemies.find(e => e.alive);
+      const opponents = actor.team === 0 ? this.enemies : this.allies;
+      const target = opponents.find(e => e.alive && e.x === this.battleCursor.gridX && e.y === this.battleCursor.gridY)
+        ?? opponents.find(e => e.alive);
       if (target) {
-        const damage = this.calMagicHurt(actor.role, target.role, this.gameState.Magics[magic]);
+        const magicData = this.gameState.Magics[magic];
+        const damage = this.calMagicHurt(actor.role, target.role, magicData);
         target.hp -= damage;
         if (target.hp <= 0) { target.hp = 0; target.alive = false; }
+        this.battleCursor.setPosition45(target.x, target.y);
+        this.battleLog = `${actor.role.Name} 施展 ${magicData?.Name ?? '武功'}，${target.role.Name} 受 ${damage} 伤害`;
+      } else {
+        this.battleLog = `${actor.role.Name} 施展武功，但没有目标`;
       }
+    } else {
+      this.battleLog = `${actor.role.Name} 尚未学会可用武功`;
     }
   }
 
@@ -184,12 +241,17 @@ export class BattleScene extends Scene {
     // 使用物品
     const firstItem = actor.role.Item[0];
     if (firstItem) {
+      const item = this.gameState.Items[firstItem];
       actor.hp = Math.min(actor.role.MaxHP, actor.hp + 50);
+      this.battleLog = `${actor.role.Name} 使用 ${item?.Name ?? '物品'}，回复生命`;
+    } else {
+      this.battleLog = `${actor.role.Name} 没有可用物品`;
     }
   }
 
   private actionWait(actor: BattleRole): void {
-    // 等待：恢复少量HP
+    actor.hp = Math.min(actor.role.MaxHP, actor.hp + 3);
+    this.battleLog = `${actor.role.Name} 等待观望`;
   }
 
   private nextTurn(): void {
@@ -230,7 +292,11 @@ export class BattleScene extends Scene {
   }
 
   protected endPhase(): void {
-    this.exitWithResult(0);
+    if (this.logFrames > 0) {
+      this.logFrames--;
+      return;
+    }
+    this.exitWithResult(this.pendingExitResult ?? 0);
   }
 
   protected onVictory(): void {
@@ -244,40 +310,83 @@ export class BattleScene extends Scene {
         ally.role.Attack += 2;
       }
     }
+    this.battleLog = `战斗胜利，获得经验 ${exp}`;
+    this.logFrames = 240;
+    this.pendingExitResult = 0;
     this.phase = 'end';
   }
 
   protected onDefeat(): void {
+    this.battleLog = '战斗失败';
+    this.logFrames = 240;
+    this.pendingExitResult = -1;
     this.phase = 'end';
-    this.exitWithResult(-1);
   }
 
   override draw(): void {
     this.beginDrawScene();
     this.battleMap.drawBattleMap(this.camera.x, this.camera.y, this.sceneContainer);
 
+    const actors: { z: number; draw: () => void }[] = [];
+
     // 绘制角色
     for (const br of [...this.allies, ...this.enemies]) {
       if (!br.alive) continue;
       const pos = this.battleMap.mapToScreen(br.x, br.y);
-      const g = new Graphics();
-      g.rect(pos.x - 8, pos.y - 16, 16, 20);
-      g.fill({ color: br.team === 0 ? 0x44ff44 : 0xff4444 });
+      const sx = pos.x - this.camera.x;
+      const sy = pos.y - this.camera.y;
+      const fightId = br.team === 0 ? 0 : Math.max(1, br.role.Pic || (1 + this.enemies.indexOf(br)));
+      const path = `resource/fight/fight${String(fightId).padStart(3, '0')}`;
+      this.textureCache.request(path, 0);
 
-      // 生命条
-      const hpRatio = br.hp / br.role.MaxHP;
-      g.rect(pos.x - 10, pos.y - 20, 20, 3);
-      g.fill({ color: 0x333333 });
-      g.rect(pos.x - 10, pos.y - 20, 20 * hpRatio, 3);
-      g.fill({ color: hpRatio > 0.5 ? 0x44ff44 : hpRatio > 0.25 ? 0xffff44 : 0xff4444 });
+      actors.push({
+        z: (br.x + br.y) * 1024 + br.x,
+        draw: () => {
+          const sprite = this.textureCache.createSprite(path, 0, sx, sy);
+          if (sprite) {
+            sprite.scale.set(0.85);
+            this.sceneContainer.addChild(sprite);
+          } else {
+            const g = new Graphics();
+            g.rect(sx - 8, sy - 38, 16, 28);
+            g.fill({ color: br.team === 0 ? 0x44ff44 : 0xff4444 });
+            this.sceneContainer.addChild(g);
+          }
 
-      this.sceneContainer.addChild(g);
+          const hpRatio = Math.max(0, Math.min(1, br.hp / br.role.MaxHP));
+          const hp = new Graphics();
+          hp.rect(sx - 16, sy - 46, 32, 4);
+          hp.fill({ color: 0x101010, alpha: 0.9 });
+          hp.rect(sx - 16, sy - 46, 32 * hpRatio, 4);
+          hp.fill({ color: hpRatio > 0.5 ? 0x44ff44 : hpRatio > 0.25 ? 0xffff44 : 0xff4444 });
+          this.sceneContainer.addChild(hp);
 
-      const nameT = Engine.getInstance().createText(br.role.Name, 10, 0xffffff);
-      nameT.x = pos.x - 14;
-      nameT.y = pos.y - 30;
-      this.sceneContainer.addChild(nameT);
+          const nameT = Engine.getInstance().createText(br.role.Name, 10, 0xffffff);
+          nameT.x = sx - 18;
+          nameT.y = sy - 62;
+          this.sceneContainer.addChild(nameT);
+        }
+      });
     }
+
+    actors.sort((a, b) => a.z - b.z).forEach(a => a.draw());
+
+    this.battleCursor.draw();
+    this.sceneContainer.addChild(this.battleCursor);
+
+    const engine = Engine.getInstance();
+    const logBox = new Graphics();
+    logBox.rect(14, engine.uiHeight - 64, engine.uiWidth - 28, 48);
+    logBox.fill({ color: 0x000000, alpha: 0.74 });
+    logBox.rect(14, engine.uiHeight - 64, engine.uiWidth - 28, 48);
+    logBox.stroke({ color: 0xd8d8d8, width: 1 });
+    this.sceneContainer.addChild(logBox);
+
+    const actor = this.turnOrder[this.currentActorIndex];
+    const text = Engine.getInstance().createText(`${this.battleLog}${actor ? `　当前：${actor.role.Name}` : ''}`, 15, 0xffee88);
+    text.x = 28;
+    text.y = engine.uiHeight - 50;
+    this.sceneContainer.addChild(text);
 
     this.endDrawScene();
   }

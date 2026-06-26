@@ -17,7 +17,7 @@ export interface FightFrameConfig {
 /**
  * 资源加载器
  * 支持：PNG/WebP 图片、ZIP 压缩包、index.ka/index.txt 偏移、fightframe.txt 帧配置
- * 
+ *
  * 资源目录结构（原版）：
  *   game/
  *   ├── resource/
@@ -35,7 +35,7 @@ export interface FightFrameConfig {
  *   └── list/
  *       ├── levelup.txt    升级经验表
  *       └── leave.txt      离队列表
- * 
+ *
  * 加载优先级：ZIP > 目录文件
  */
 export class AssetLoader {
@@ -146,6 +146,10 @@ export class AssetLoader {
     const resp = await fetch(fullPath);
     if (!resp.ok) throw new Error(`Not found: ${fullPath}`);
     const text = await resp.text();
+    return this.parseIndexTxt(text);
+  }
+
+  private parseIndexTxt(text: string): Map<number, IndexEntry> {
     const map = new Map<number, IndexEntry>();
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
@@ -164,22 +168,42 @@ export class AssetLoader {
     const resp = await fetch(fullPath);
     if (!resp.ok) throw new Error(`Not found: ${fullPath}`);
     const buffer = await resp.arrayBuffer();
-    const data = new Int16Array(buffer);
+    return this.parseIndexKa(buffer);
+  }
+
+  private parseIndexKa(buffer: ArrayBuffer): Map<number, IndexEntry> {
+    const view = new DataView(buffer);
     const map = new Map<number, IndexEntry>();
-    for (let i = 0; i < data.length - 1; i += 2) {
-      const idx = i / 2;
-      if (data[i] !== 0 || data[i + 1] !== 0) {
-        map.set(idx, { x: data[i], y: data[i + 1] });
-      }
+    for (let i = 0; i + 3 < view.byteLength; i += 4) {
+      const idx = i / 4;
+      const x = view.getInt16(i, true);
+      const y = view.getInt16(i + 2, true);
+      if (x !== 0 || y !== 0) map.set(idx, { x, y });
     }
     return map;
   }
 
-  /** 自动加载偏移文件：先 index.txt，后 index.ka */
+  private async loadIndexTxtFromZip(dirPath: string): Promise<Map<number, IndexEntry>> {
+    const zip = await this.loadZip(dirPath.replace(/\/$/, '') + '.zip');
+    const file = zip.file('index.txt');
+    if (!file) throw new Error(`index.txt not found in ${dirPath}.zip`);
+    return this.parseIndexTxt(await file.async('text'));
+  }
+
+  private async loadIndexKaFromZip(dirPath: string): Promise<Map<number, IndexEntry>> {
+    const zip = await this.loadZip(dirPath.replace(/\/$/, '') + '.zip');
+    const file = zip.file('index.ka');
+    if (!file) throw new Error(`index.ka not found in ${dirPath}.zip`);
+    return this.parseIndexKa(await file.async('arraybuffer'));
+  }
+
+  /** 自动加载偏移文件：先 index.txt，后 index.ka；支持目录文件和 ZIP 内 index */
   async loadIndex(dirPath: string): Promise<Map<number, IndexEntry>> {
     const base = dirPath.replace(/\/$/, '') + '/';
     try { return await this.loadIndexTxt(base + 'index.txt'); } catch {}
     try { return await this.loadIndexKa(base + 'index.ka'); } catch {}
+    try { return await this.loadIndexTxtFromZip(dirPath); } catch {}
+    try { return await this.loadIndexKaFromZip(dirPath); } catch {}
     return new Map();
   }
 
@@ -196,10 +220,10 @@ export class AssetLoader {
     try {
       const text = await this.loadText(path);
       const lines = text.split('\n').filter(l => l.trim() && !l.startsWith('#'));
-      
+
       // 默认每方向帧数
       const frameCounts: number[] = [0, 0, 0, 0]; // [下, 左, 上, 右]
-      
+
       for (const line of lines) {
         const parts = line.trim().split(/\s+/).map(Number);
         if (parts.length >= 5) {
@@ -233,7 +257,7 @@ export class AssetLoader {
   }> {
     const offsets = await this.loadIndex(dirPath);
     const frameConfig = await this.loadFightFrame(dirPath + '/fightframe.txt');
-    
+
     const images: HTMLImageElement[] = [];
     for (let i = 0; i < frameConfig.totalFrames; i++) {
       try {

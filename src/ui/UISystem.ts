@@ -20,7 +20,7 @@ export class UISystem extends RunNode {
     this.bgGfx.fill({ color: 0x000000, alpha: 0.5 });
     this.addChild(this.bgGfx);
 
-    const actions = ['item', 'status', 'magic', 'team', 'save', 'load', 'config', 'keyconfig', 'resume'];
+    const actions = ['item', 'status', 'magic', 'team', 'save', 'load', 'config', 'keyconfig', 'resume', 'shop'];
     const items: MenuItem[] = [
       { text: '物品', enabled: true, tag: 0, onSelect: () => { this.onSelectCallback?.(actions[0]); this.exitWithResult(0); } },
       { text: '状态', enabled: true, tag: 1, onSelect: () => { this.onSelectCallback?.(actions[1]); this.exitWithResult(1); } },
@@ -30,6 +30,7 @@ export class UISystem extends RunNode {
       { text: '读取', enabled: true, tag: 5, onSelect: () => { this.onSelectCallback?.(actions[5]); this.exitWithResult(5); } },
       { text: '设置', enabled: true, tag: 6, onSelect: () => { this.onSelectCallback?.(actions[6]); this.exitWithResult(6); } },
       { text: '按键配置', enabled: true, tag: 7, onSelect: () => { this.onSelectCallback?.(actions[7]); this.exitWithResult(7); } },
+      { text: '商店测试', enabled: true, tag: 9, onSelect: () => { this.onSelectCallback?.(actions[9]); this.exitWithResult(9); } },
       { text: '返回游戏', enabled: true, tag: 8, onSelect: () => { this.onSelectCallback?.(actions[8]); this.exitWithResult(8); } },
     ];
 

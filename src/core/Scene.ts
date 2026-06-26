@@ -92,12 +92,29 @@ export class Scene extends RunNode {
     };
   }
 
+  /** kys-cpp / 原版 45° 等距坐标。 */
+  getPositionOnRenderIso(mx: number, my: number, viewX: number, viewY: number): Point {
+    return {
+      x: (mx - my) * this.TILE_W - viewX,
+      y: (mx + my) * this.TILE_H - viewY,
+    };
+  }
+
   /** 屏幕坐标 → 地图坐标 */
   getMousePosition(mouseX: number, mouseY: number, viewX: number, viewY: number): Point {
     const sx = mouseX + viewX;
     const sy = mouseY + viewY;
     const mx = (sx / (this.TILE_W / 2) + sy / (this.TILE_H / 2)) / 2;
     const my = (sy / (this.TILE_H / 2) - sx / (this.TILE_W / 2)) / 2;
+    return { x: Math.floor(mx), y: Math.floor(my) };
+  }
+
+  /** 屏幕坐标 → 原版 45° 地图坐标。 */
+  getMousePositionIso(mouseX: number, mouseY: number, viewX: number, viewY: number): Point {
+    const sx = mouseX + viewX;
+    const sy = mouseY + viewY;
+    const mx = (sx / this.TILE_W + sy / this.TILE_H) / 2;
+    const my = (sy / this.TILE_H - sx / this.TILE_W) / 2;
     return { x: Math.floor(mx), y: Math.floor(my) };
   }
 
@@ -255,8 +272,14 @@ export class Scene extends RunNode {
   // ============================================================
 
   beginDrawScene(): void {
-    // 清除旧的绘制内容（直接绘制到 this Container）
-    this.removeChildren();
+    // 只清除场景绘制层，保留菜单/对话框等通过 addChildNode 挂载的交互子节点。
+    // sceneContainer 始终作为最底层，避免 SubScene/BattleScene 绘制到未挂载容器导致黑屏。
+    this.sceneContainer.removeChildren();
+    if (!this.children.includes(this.sceneContainer)) {
+      this.addChildAt(this.sceneContainer, 0);
+    } else if (this.getChildIndex(this.sceneContainer) !== 0) {
+      this.setChildIndex(this.sceneContainer, 0);
+    }
   }
 
   endDrawScene(): void {

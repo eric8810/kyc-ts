@@ -5,7 +5,7 @@ dist/
 _extract.*
 _checkdb.*
 
-# 版权游戏资源（需单独下载）
+# Copyrighted game resources (download separately)
 public/game/cc/
 public/game/config/
 public/game/font/
@@ -26,12 +26,15 @@ public/game/game-ptt/
 public/game/game-RiverLake/
 public/game/cpplauncher.exe
 
-# 保留 public/game_data.json（从数据库提取的 JSON）
+# Keep public/game_data.json (JSON extracted from database)
 !public/game/game_data.json
 
-# 工具（构建时使用）
+# Build-time tools
 scripts/lua2ts/
 
-# 编辑器
+# Editors
 .idea/
 .vscode/
+
+# Local browser debugging screenshots/traces
+dogfood-output/

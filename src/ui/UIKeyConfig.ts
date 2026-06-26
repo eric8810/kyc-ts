@@ -1,19 +1,6 @@
-import { Graphics, Text } from 'pixi.js';
 import { RunNode } from '../core/RunNode';
 import { Engine } from '../engine/Engine';
-
-/** 默认按键映射 */
-export const DEFAULT_KEY_BINDINGS: Record<string, string> = {
-  up: 'ArrowUp',
-  down: 'ArrowDown',
-  left: 'ArrowLeft',
-  right: 'ArrowRight',
-  confirm: 'Enter',
-  cancel: 'Escape',
-  menu: 'Escape',
-  status: 'KeyS',
-  item: 'KeyI',
-};
+import { InputManager, DEFAULT_KEY_BINDINGS } from '../engine/InputManager';
 
 /**
  * UIKeyConfig — 按键配置界面
@@ -27,8 +14,8 @@ export class UIKeyConfig extends RunNode {
   constructor() {
     super();
     this.label = 'UIKeyConfig';
-    this.bindings = { ...DEFAULT_KEY_BINDINGS };
-    this.keys = Object.keys(this.bindings);
+    this.bindings = InputManager.getInstance().getKeyBindings();
+    this.keys = Object.keys(DEFAULT_KEY_BINDINGS);
     this.renderView();
   }
 
@@ -48,13 +35,13 @@ export class UIKeyConfig extends RunNode {
       label.x = 40; label.y = y;
       this.addChild(label);
 
-      const keyName = this.rebinding && selected ? '...' : this.bindings[action];
+      const keyName = this.rebinding && selected ? '请按新键...' : this.bindings[action];
       const keyText = engine.createText(keyName, 16, selected ? 0xffff00 : 0x88aacc);
       keyText.x = 200; keyText.y = y;
       this.addChild(keyText);
     });
 
-    const hint = engine.createText('Enter: 重新绑定  ESC: 返回', 13, 0x666688);
+    const hint = engine.createText('Enter: 重新绑定  R: 恢复默认  ESC: 返回', 13, 0x8888aa);
     hint.x = 20; hint.y = 400;
     this.addChild(hint);
   }
@@ -77,9 +64,32 @@ export class UIKeyConfig extends RunNode {
 
   rebindKey(key: string): void {
     if (this.rebinding) {
-      this.bindings[this.keys[this.selectedIndex]] = key;
+      const action = this.keys[this.selectedIndex];
+      this.bindings[action] = key;
+      InputManager.getInstance().setKeyBinding(action, key);
       this.rebinding = false;
       this.renderView();
     }
+  }
+
+  resetDefaults(): void {
+    InputManager.getInstance().resetKeyBindings();
+    this.bindings = InputManager.getInstance().getKeyBindings();
+    this.rebinding = false;
+    this.renderView();
+  }
+
+  override backRun(): void {
+    const input = InputManager.getInstance();
+    if (this.rebinding) {
+      const key = input.getPressedKeys()[0];
+      if (key) this.rebindKey(key);
+      return;
+    }
+    if (input.isKeyPressed('ArrowUp') || input.isKeyPressed('KeyW')) this.selectUp();
+    if (input.isKeyPressed('ArrowDown') || input.isKeyPressed('KeyS')) this.selectDown();
+    if (input.isKeyPressed('Enter') || input.isKeyPressed('Space')) this.startRebind();
+    if (input.isKeyPressed('KeyR')) this.resetDefaults();
+    if (input.isKeyPressed('Escape')) this.exitWithResult(0);
   }
 }

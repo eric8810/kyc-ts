@@ -1,6 +1,7 @@
 import { Graphics, Text } from 'pixi.js';
 import { RunNode } from '../core/RunNode';
 import { Engine } from '../engine/Engine';
+import { InputManager } from '../engine/InputManager';
 import type { GameState } from '../data/Types';
 
 /**
@@ -15,7 +16,8 @@ export class TeamMenu extends RunNode {
   loadState(state: GameState): void {
     this.gameState = state;
     const self = state.Roles[state.SelfIndex];
-    this.teamIds = self?.Team?.filter(id => id > 0) || [];
+    this.teamIds = self?.Team?.filter(id => id >= 0) || [];
+    if (this.teamIds.length === 0 && state.SelfIndex >= 0) this.teamIds = [state.SelfIndex];
     this.internalDraw();
   }
 
@@ -60,5 +62,23 @@ export class TeamMenu extends RunNode {
       empty.x = 30; empty.y = y + 10;
       this.addChild(empty);
     }
+
+    const hint = engine.createText('↑↓ 选择  ESC/Enter 返回', 13, 0x666688);
+    hint.x = 20; hint.y = 380;
+    this.addChild(hint);
+  }
+
+  override backRun(): void {
+    const input = InputManager.getInstance();
+    const max = Math.max(0, this.teamIds.length - 1);
+    if (input.isKeyPressed('ArrowUp') || input.isKeyPressed('KeyW')) {
+      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+      this.internalDraw();
+    }
+    if (input.isKeyPressed('ArrowDown') || input.isKeyPressed('KeyS')) {
+      this.selectedIndex = Math.min(max, this.selectedIndex + 1);
+      this.internalDraw();
+    }
+    if (input.isKeyPressed('Escape') || input.isKeyPressed('Enter') || input.isKeyPressed('Space')) this.exitWithResult(this.selectedIndex);
   }
 }

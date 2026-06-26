@@ -2,6 +2,9 @@ import { Engine } from '../engine/Engine';
 import { AudioManager } from '../engine/AudioManager';
 import type { GameState } from '../data/Types';
 import { SaveManager } from '../data/SaveManager';
+import { Talk } from '../ui/Talk';
+import { Menu, type MenuItem } from '../ui/Menu';
+import { BattleScene } from '../scenes/battle/BattleScene';
 
 /**
  * EventContext — 125+ 条游戏指令的实现
@@ -37,19 +40,28 @@ export class EventContext {
       await this.loadTalkLines();
       content = this.talkLines[text] || `[对话#${text}]`;
     }
-    // 在实际场景中会通过 Talk 组件显示，这里输出日志
     console.log(`[Talk] ${content}`);
+    await this.showTalk(content, headId, nameId);
   }
 
   async oldTalk(textId: number): Promise<void> {
     await this.loadTalkLines();
     const content = this.talkLines[textId] || `[对话#${textId}]`;
     console.log(`[Talk] ${content}`);
+    await this.showTalk(content, 0, 0);
   }
 
   async battle(id: number): Promise<boolean> {
     console.log(`[Battle] 进入战斗 #${id}`);
-    return true;
+    const battle = new BattleScene(this.gameState, id);
+    const engine = Engine.getInstance();
+    engine.uiLayer.addChild(battle);
+    try {
+      const result = await battle.run(false);
+      return result >= 0;
+    } finally {
+      if (battle.parent) battle.parent.removeChild(battle);
+    }
   }
 
   async showPicture(id: number): Promise<void> {
@@ -71,7 +83,31 @@ export class EventContext {
 
   async showMenu(options: string[]): Promise<number> {
     console.log(`[Menu] 选项: ${options.join(', ')}`);
-    return 0;
+    if (options.length === 0) return -1;
+    const engine = Engine.getInstance();
+    const items: MenuItem[] = options.map((text, i) => ({ text, enabled: true, tag: i }));
+    const menu = new Menu(items, Math.max(20, engine.uiWidth / 2 - 120), Math.max(40, engine.uiHeight / 2 - options.length * 16));
+    engine.uiLayer.addChild(menu);
+    try {
+      return await menu.run(false);
+    } finally {
+      if (menu.parent) menu.parent.removeChild(menu);
+    }
+  }
+
+  private async showTalk(content: string, headId: number, nameId: number): Promise<void> {
+    const role = this.gameState.Roles[nameId] ?? this.gameState.Roles.find(r => r.HeadID === headId);
+    const talk = new Talk();
+    const engine = Engine.getInstance();
+    engine.uiLayer.addChild(talk);
+    const done = talk.show(role?.Name || '', content, headId);
+    const running = talk.run(false);
+    try {
+      await done;
+      await running;
+    } finally {
+      if (talk.parent) talk.parent.removeChild(talk);
+    }
   }
 
   private async loadTalkLines(): Promise<void> {
@@ -183,133 +219,56 @@ export class EventContext {
       'Knowledge', 'Morality', 'AttackWithPoison', 'AttackTwice',
       'Fame', 'IQ',
     ];
-    if (keys[attrId]) (role as any)[keys[attrId]] = val;
+    const key = keys[attrId];
+    if (key) (role as any)[key] = val;
   }
 
-  judgeInTeam(id: number): boolean { return this.self?.Team?.includes(id) ?? false; }
-  inMyTeam(id: number): boolean { return this.judgeInTeam(id); }
-  dead(id: number): boolean { return (this.gameState.Roles[id]?.HP ?? 0) <= 0; }
+  judgeInTeam(roleId: number): boolean {
+    return this.gameState.TeamIndex?.includes(roleId) || this.self?.ID === roleId || false;
+  }
+
   getMorality(): number { return this.self?.Morality ?? 0; }
   getFame(): number { return this.self?.Fame ?? 0; }
-  checkRoleSex(roleId: number): number { return this.gameState.Roles[roleId]?.Sexual ?? 0; }
-  getRoleCount(): number { return this.gameState.Roles.length; }
-  getLevel(): number { return this.self?.Level ?? 0; }
 
-  // ============================================================
-  // 同步指令 — 队伍
-  // ============================================================
-  joinTeam(id: number): void {
-    if (!this.self || this.self.Team.includes(id)) return;
-    this.self.Team.push(id);
-    this.self.TeamCount = this.self.Team.length;
+  dead(roleId: number): boolean {
+    const role = this.gameState.Roles[roleId];
+    return !role || role.HP <= 0;
   }
 
-  leaveTeam(id: number): void {
-    if (!this.self) return;
-    const idx = this.self.Team.indexOf(id);
-    if (idx >= 0) {
-      this.self.Team.splice(idx, 1);
-      this.self.TeamCount = this.self.Team.length;
-    }
-  }
-
-  getTeamCount(): number { return this.self?.TeamCount ?? 0; }
-
-  // ============================================================
-  // 同步指令 — 武功
-  // ============================================================
   haveMagic(roleId: number, magicId: number): boolean {
     const role = this.gameState.Roles[roleId];
     return role?.MagicID?.includes(magicId) ?? false;
   }
 
-  getMagicLevel(roleId: number, magicId: number): number {
-    const role = this.gameState.Roles[roleId];
-    if (!role) return 0;
-    const idx = role.MagicID.indexOf(magicId);
-    return idx >= 0 ? (role.MagicLevel[idx] ?? 0) : 0;
-  }
-
-  setMagicLevel(roleId: number, magicId: number, level: number): void {
-    const role = this.gameState.Roles[roleId];
-    if (!role) return;
-    const idx = role.MagicID.indexOf(magicId);
-    if (idx >= 0) role.MagicLevel[idx] = level;
-  }
-
-  learnMagic(roleId: number, magicId: number, level: number): void {
-    const role = this.gameState.Roles[roleId];
-    if (!role) return;
-    const idx = role.MagicID.indexOf(magicId);
-    if (idx >= 0) {
-      role.MagicLevel[idx] = Math.max(role.MagicLevel[idx], level);
-    } else {
-      // 找空槽位
-      for (let i = 0; i < 10; i++) {
-        if (!role.MagicID[i]) {
-          role.MagicID[i] = magicId;
-          role.MagicLevel[i] = level;
-          return;
-        }
-      }
-    }
-  }
-
-  // ============================================================
-  // 同步指令 — 场景
-  // ============================================================
-  setScenceMap(x: number, y: number): void {
-    if (this.self) { this.self.X = x; this.self.Y = y; }
-  }
-
-  setSubMapScene(id: number): void {
-    this.gameState.SubMapIndex = id;
-  }
-
-  getSubMapScene(): number { return this.gameState.SubMapIndex; }
-
   // ============================================================
   // 同步指令 — 全局变量
   // ============================================================
-  setGlobalVar(id: number, val: number): void { this.setVar(id, val); }
   getGlobalVar(id: number): number { return this.getVar(id); }
+  setGlobalVar(id: number, val: number): void { this.setVar(id, val); }
 
-  /** 指令映射表（用于 Lua→TS 转换器） */
-  static INSTRUCTION_MAP: Record<string, { name: string; isAsync: boolean }> = {
-    'Talk': { name: 'talk', isAsync: true },
-    'OldTalk': { name: 'oldTalk', isAsync: true },
-    'Battle': { name: 'battle', isAsync: true },
-    'ShowPicture': { name: 'showPicture', isAsync: true },
-    'PlayMusic': { name: 'playMusic', isAsync: false },
-    'DarkScreen': { name: 'darkScreen', isAsync: true },
-    'LightScreen': { name: 'lightScreen', isAsync: true },
-    'Rest': { name: 'rest', isAsync: true },
-    'AskJoin': { name: 'askJoin', isAsync: true },
-    'Menu': { name: 'showMenu', isAsync: true },
-    'AddItem': { name: 'addItem', isAsync: false },
-    'RemoveItem': { name: 'removeItem', isAsync: false },
-    'HasItem': { name: 'hasItem', isAsync: false },
-    'AddHP': { name: 'addHP', isAsync: false },
-    'AddMP': { name: 'addMP', isAsync: false },
-    'AddAttack': { name: 'addAttack', isAsync: false },
-    'AddSpeed': { name: 'addSpeed', isAsync: false },
-    'AddDefence': { name: 'addDefence', isAsync: false },
-    'AddMorality': { name: 'addMorality', isAsync: false },
-    'AddFame': { name: 'addFame', isAsync: false },
-    'AddIQ': { name: 'addIQ', isAsync: false },
-    'JudgeAttr': { name: 'judgeRoleAttr', isAsync: false },
-    'SetRoleAttr': { name: 'setRoleAttr', isAsync: false },
-    'JudgeInTeam': { name: 'judgeInTeam', isAsync: false },
-    'JoinTeam': { name: 'joinTeam', isAsync: false },
-    'LeaveTeam': { name: 'leaveTeam', isAsync: false },
-    'HaveMagic': { name: 'haveMagic', isAsync: false },
-    'GetMagicLevel': { name: 'getMagicLevel', isAsync: false },
-    'LearnMagic': { name: 'learnMagic', isAsync: false },
-    'SetScenceMap': { name: 'setScenceMap', isAsync: false },
-    'SetSubMapScene': { name: 'setSubMapScene', isAsync: false },
-    'Dead': { name: 'dead', isAsync: false },
-    'AddPhysicalPower': { name: 'addPhysicalPower', isAsync: false },
-    'AddHurt': { name: 'addHurt', isAsync: false },
-    'AddPoison': { name: 'addPoison', isAsync: false },
-  };
+  // ============================================================
+  // 同步指令 — 存档
+  // ============================================================
+  async save(slot: number): Promise<void> {
+    await SaveManager.getInstance().saveGame(slot, this.gameState);
+  }
+
+  async load(slot: number): Promise<boolean> {
+    const gs = await SaveManager.getInstance().loadGame(slot);
+    if (gs) {
+      this.gameState = gs;
+      return true;
+    }
+    return false;
+  }
+
+  // ============================================================
+  // 兼容转换脚本的常见别名
+  // ============================================================
+  instruct_0(): void {}
+  instruct_1(): void {}
+  instruct_2(): void {}
+  instruct_3(): void {}
+  instruct_4(): void {}
+  instruct_5(): void {}
 }

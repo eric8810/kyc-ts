@@ -2,6 +2,7 @@ import { Graphics, Text } from 'pixi.js';
 import { RunNode } from '../core/RunNode';
 import { Engine } from '../engine/Engine';
 import { SaveManager } from '../data/SaveManager';
+import { InputManager } from '../engine/InputManager';
 import type { GameState } from '../data/Types';
 
 /**
@@ -76,5 +77,13 @@ export class UISave extends RunNode {
       this.onSlotSelected(this.selectedSlot);
     }
     this.exitWithResult(this.selectedSlot);
+  }
+
+  override backRun(): void {
+    const input = InputManager.getInstance();
+    if (input.isKeyPressed('ArrowUp') || input.isKeyPressed('KeyW')) this.selectUp();
+    if (input.isKeyPressed('ArrowDown') || input.isKeyPressed('KeyS')) this.selectDown();
+    if (input.isKeyPressed('Enter') || input.isKeyPressed('Space')) void this.confirm();
+    if (input.isKeyPressed('Escape')) this.exitWithResult(-1);
   }
 }

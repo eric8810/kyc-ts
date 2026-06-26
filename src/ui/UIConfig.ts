@@ -2,6 +2,7 @@ import { Graphics, Text } from 'pixi.js';
 import { RunNode } from '../core/RunNode';
 import { Engine } from '../engine/Engine';
 import { AudioManager } from '../engine/AudioManager';
+import { InputManager } from '../engine/InputManager';
 
 /**
  * UIConfig — 游戏设置界面
@@ -74,5 +75,14 @@ export class UIConfig extends RunNode {
         break;
     }
     this.updateView();
+  }
+
+  override backRun(): void {
+    const input = InputManager.getInstance();
+    if (input.isKeyPressed('ArrowUp') || input.isKeyPressed('KeyW')) this.selectUp();
+    if (input.isKeyPressed('ArrowDown') || input.isKeyPressed('KeyS')) this.selectDown();
+    if (input.isKeyPressed('ArrowLeft') || input.isKeyPressed('KeyA')) this.adjustValue(-1);
+    if (input.isKeyPressed('ArrowRight') || input.isKeyPressed('KeyD') || input.isKeyPressed('Enter') || input.isKeyPressed('Space')) this.adjustValue(1);
+    if (input.isKeyPressed('Escape')) this.exitWithResult(0);
   }
 }

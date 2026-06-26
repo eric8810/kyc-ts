@@ -21,6 +21,7 @@ export class BattleMenu extends RunNode {
   private bgGraphics: Graphics;
   private menuItems: import('pixi.js').Text[] = [];
   private _onResult: ((action: number) => void) | null = null;
+  private _onCancel: (() => void) | null = null;
 
   constructor() {
     super();
@@ -33,6 +34,7 @@ export class BattleMenu extends RunNode {
   }
 
   set onResult(fn: ((action: number) => void) | null) { this._onResult = fn; }
+  set onCancel(fn: (() => void) | null) { this._onCancel = fn; }
 
   setEnabled(action: number, v: boolean): void {
     this.enabled[action] = v;
@@ -125,6 +127,7 @@ export class BattleMenu extends RunNode {
       this.exitWithResult(this._selectedAction);
     }
     if (input.isKeyPressed('Escape')) {
+      if (this._onCancel) this._onCancel();
       this.exitWithResult(-1);
     }
   }

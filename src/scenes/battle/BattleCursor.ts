@@ -111,8 +111,8 @@ export class BattleCursor extends RunNode {
     for (let y = 0; y < 64; y++) {
       for (let x = 0; x < 64; x++) {
         if (this.selectLayer[y * 64 + x] <= 0) continue;
-        const px = (x - y) * tileW / 2;
-        const py = (x + y) * tileH / 2;
+        const px = (x - y) * tileW / 2 + Engine.getInstance().uiWidth / 2;
+        const py = (x + y) * tileH / 2 + 40;
 
         let color = 0x00ff00;
         if (this.mode === CursorMode.Move) color = 0x0088ff;
@@ -125,8 +125,8 @@ export class BattleCursor extends RunNode {
       }
     }
 
-    const cx = (this.gridX - this.gridY) * tileW / 2;
-    const cy = (this.gridX + this.gridY) * tileH / 2;
+    const cx = (this.gridX - this.gridY) * tileW / 2 + Engine.getInstance().uiWidth / 2;
+    const cy = (this.gridX + this.gridY) * tileH / 2 + 40;
     this.cursorGraphics.rect(cx - tileW / 2, cy - tileH / 2, tileW, tileH);
     this.cursorGraphics.stroke({ color: 0xffffff, width: 2 });
   }
